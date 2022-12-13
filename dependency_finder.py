@@ -3,6 +3,39 @@ import pydot
 from IPython.display import Image, display
 
 
+def dirFolderList(path):
+    folders = []
+    for item in os.listdir(path):
+        if os.path.isdir(path + item):
+            folders.append(path+item+'/')
+    return folders
+
+def folderTreeScan(path, depth=10):
+    folderList = set(dirFolderList(path))
+    previousLayerFolders = [folderList]
+    while depth > 0:
+        nextLayerFolders = []
+        for folder in previousLayerFolders:
+            nextLayerFolders.extend(dirFolderList(folder))
+        previousLayerFolders = nextLayerFolders
+        folderList.union(nextLayerFolders)
+        depth -= 1
+        if len(nextLayerFolders) < 1:
+            depth = 0
+
+    return folderList
+
+a = set(['a', 'b'])
+b = ['c', 'd', 'a', 'f']
+a
+a.union(b)
+help(a)
+path = '/home/doug/Documents/projects/OXgame/OX-AI-Game/'
+folderTreeScan(path)
+print(a)
+dirFolderList(path)
+path = dirFolderList(path)[0]
+path
 def removeTrippleQuotes(string):
     searching = True
     while searching:
@@ -75,6 +108,13 @@ def importDetection(fileTextBlock):
                             use = word[len(alias)+1:]
                             uses.add(use)
             fileImports[imported] = [*uses]
+
+        if line.startswith('from '):
+            words = line.split()
+            imported = words[1]
+            uses = set(words[3:])
+            fileImports[imported] = [*uses]
+
         lineNo += 1
     return fileImports
 
@@ -122,29 +162,41 @@ def functionDetection(fileTextBlock):
     return fileFunctions
 
 
-def find_deps_in_folder():
+def find_deps_in_folder(path):
     files = {}
-    for file in os.listdir():
-        if file.endswith('.py'):
-            fileName = file[:-3]
-            fileTextBlock = open(file).read()
-            fileImports = importDetection(fileTextBlock)
-            fileClasses = classDetection(fileTextBlock)
-            fileFunctions = functionDetection(fileTextBlock)
+    if isinstance(path, type('')):
+        path = [path]
 
-            files[fileName] = {'imports': fileImports,
-                               'functions': fileFunctions,
-                               'classes': fileClasses}
+    for path in path:
+        for file in os.listdir(path):
+            if file.endswith('.py'):
+                fileName = file[:-3]
+                fileTextBlock = open(path+file).read()
+                fileImports = importDetection(fileTextBlock)
+                fileClasses = classDetection(fileTextBlock)
+                fileFunctions = functionDetection(fileTextBlock)
+
+                files[fileName] = {'imports': fileImports,
+                                   'functions': fileFunctions,
+                                   'classes': fileClasses}
     return files
-
-
 
 def saveGraphImage(Graph, GraphName):
     with open(GraphName, "wb") as png:
         png.write(Graph.create_png())
 
-def createPydotGraph():
-    files = find_deps_in_folder()
+
+# want node of intrest and detail level 1,2,3
+def createPydotGraph(path=None,
+                     plotExternals=True,
+                     headLabels=False,
+                     headDetLvl=1,
+                     tailLabels=True,
+                     tailDetLvl=1,
+                     labels=True,
+                     labelDetLvl=1):
+
+    files = find_deps_in_folder(path)
     Graph = pydot.Dot(graph_type='digraph', compound='true', nodesep=0.5, ranksep=3, overlap='scale')
 
     colourList = ['aquamarine','brown1','chartreuse1','crimson','cornflowerblue','darkgoldenrod1','darkgreen','deeppink','firebrick2','gold2','greenyellow','indianred2']
@@ -154,8 +206,9 @@ def createPydotGraph():
     for file in files:
         libraries.add(file)
         file = files[file]
-        for imports in file['imports']:
-            libraries.add(imports)
+        if plotExternals is True:
+            for imports in file['imports']:
+                libraries.add(imports)
 
     # Nodes
     color = 0
@@ -176,9 +229,7 @@ def createPydotGraph():
             for classFunc in files[library]['classes'][fileClass]:
                 newClass.append('<FONT POINT-SIZE="10">  '+classFunc+'</FONT>')
             classStr.append('<BR ALIGN="LEFT"/>'.join(newClass))
-            print(classStr)
         classStr = '<BR ALIGN="LEFT"/>'.join(classStr)
-        print(classStr)
         funcStr = []
         for func in files[library]['functions']:
             funcStr.append('<FONT POINT-SIZE="10">'+func+'</FONT>')
@@ -191,23 +242,60 @@ def createPydotGraph():
     for fileName in files:
         file = files[fileName]
         for imported in file['imports'].keys():
-            label = '\l'.join(files[fileName]['imports'][imported])
+            if imported in libraries:
+                #label = '\l'.join(files[fileName]['imports'][imported])
+                Edge = pydot.Edge(imported, fileName,
+                                  labelfontcolor=nodeColours[fileName],
+                                  labeldistance=10,
+                                  decorate='true',
+                                  fontsize=13,
+                                  penwidth=4,
+                                  color='"'+nodeColours[fileName]+';0.3:'+nodeColours[imported]+'"',
+                                  fontcolor=nodeColours[imported])
+                if labels is True:
+                    if labelDetLvl == 1:
+                        label = '<<B>' + imported + ' -- ' + fileName + '</B>>'
+                    else:
+                        label = ['<B>' + imported + ' -- ' + fileName + '</B>'] + files[fileName]['imports'][imported]
+                        label = '<' + '<BR ALIGN="LEFT"/>'.join(label) + '>'
+                    Edge.set('label', label)
 
-            Graph.add_edge(pydot.Edge(imported, fileName, label=label, taillabel=fileName, labelfontcolor=nodeColours[fileName], labeldistance=5, decorate='true', fontsize=13, penwidth=4, color='"'+nodeColours[fileName]+';0.3:'+nodeColours[imported]+'"', fontcolor=nodeColours[imported]))
+                if headLabels is True:
+                    if headDetLvl == 1:
+                        headLabel = imported
+                    else:
+                        headLabel = ['<B>'+imported+'</B>'] + files[fileName]['imports'][imported]
+                        headLabel = '<' + '<BR ALIGN="LEFT"/>'.join(headLabel) + '>'
+                    Edge.set('headlabel', headLabel)
+
+                if tailLabels is True:
+                    if tailDetLvl == 1:
+                        tailLabel = fileName
+                    else:
+                        tailLabel = ['<B>'+fileName+'</B>'] + files[fileName]['imports'][imported]
+                        tailLabel = '<' + '<BR ALIGN="LEFT"/>'.join(tailLabel) + '>'
+                    Edge.set('taillabel', tailLabel)
+
+                Graph.add_edge(Edge)
 
     return Graph
-
-
-Graph = createPydotGraph()
+dirFolderList(path)
+path = '/home/doug/Documents/projects/acorn/acorn-precision-farming-rover/vehicle/'
+path = '/home/doug/Documents/projects/OXgame/OX-AI-Game/'
+path = ['/home/doug/Documents/projects/serialgui code/', '/home/doug/Documents/projects/OXgame/OX-AI-Game/']
+Graph = createPydotGraph(path=path, plotExternals=False, headLabels=True, tailLabels=False, labels=False,
+                                                         headDetLvl=2,    tailDetLvl=1,    labelDetLvl=2)
 
 im = Image(Graph.create_png())
+
 display(im)
 
 
-saveGraphImage(Graph, 'latest try.png')
+saveGraphImage(Graph, 'latest try 4.png')
 
 print(Graph.to_string())
 help(pydot.Edge())
+
 
 '''
 -----------------------------Archive--------------------------------------------

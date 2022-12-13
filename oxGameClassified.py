@@ -1,6 +1,8 @@
 import numpy as np
 
+
 def player1(game, winConnectLen):
+    print(game)
     return np.random.randint(len(game[:,0])), np.random.randint(len(game[0,:]))
 
 
